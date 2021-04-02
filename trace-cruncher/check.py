@@ -30,19 +30,16 @@ if __name__ == "__main__":
 	if len(sys.argv) < 2:
 		print_usage()
 		exit()
-	"""
-	fname = str(sys.argv[1])
-	f = tc.open_file(file_name=fname)
-
-	records = f.load()
-
-	for i in range(0, len(records["event"])):
-		print(records["time"][i])
-	"""
 
 	all_records = []
 
-	#for i in range(1, len(sys.argv)):
+	"""
+	If a loop over the two files is done, an error from trace-seq is raised,
+	saying that the trace_seq is used after it was destoyed.
+	This is true because the same one is used for every file.
+	The right way to do it I think would be to implement the kshark function
+	`kshark_load_all_entries`.
+	"""
 	fname = str(sys.argv[1])
 	fname1 = str(sys.argv[2])
 
@@ -51,88 +48,9 @@ if __name__ == "__main__":
 
 	records = f.load()
 	records1 = f1.load()
-		#for i in range(0, tc.size(records)):
-		#all_records.append(records)
 
 	load_records(records, all_records)
 	load_records(records1, all_records)
 
 	print_records(all_records)
 	
-
-"""
-def merge_trace_files(files):
-	records_files = []
-	result = []
-
-	n_entries = 0
-	for f in files:
-		records = f.load()
-		records_files.append(records)
-
-		n_entries = n_entries + len(records["event"])
-
-	for j in range(0, n_entries):
-		min_time 	 = sys.maxsize
-		min_event_id = ""
-		min_file 	 = ""
-		for i in range(0, len(records_files)):
-			records = records_files[0]
-			if records["time"][i] < min_time:
-				min_time 	 = records["time"][i]
-				min_event_id = records["event"][i]
-				min_file 	 = i
-
-		print(j)
-
-		event_name = files[min_file].event_name(event_id=min_event_id)
-
-		#print("%d: [%d] %s" % min_file, min_time, event_name)
-
-		records_files[min_file].pop(0)
-
-
-if __name__ == "__main__":
-	if len(sys.argv) < 2:
-		print_usage()
-		exit()
-
-	files = []
-
-	for i in range(1, len(sys.argv)):
-		fname = str(sys.argv[i])
-		f = tc.open_file(file_name=fname)
-
-		files.append(f)
-
-	merge_trace_files(files)
-
-"""
-"""
-	fname = str(sys.argv[1])
-	f = tc.open_file(file_name=fname)
-
-	records = f.load()
-
-	for i in range(0, len(records["event"])):
-		print(records["time"][i])
-
-
-	for i in range(1, len(sys.argv)):
-		fname = str(sys.argv[i])
-		f = tc.open_file(file_name=fname)
-
-		open_files.append(f)
-
-	kvm_entry_id = f.event_id(name='kvm/kvm_entry')
-	kvm_exit_id = f.event_id(name='kvm/kvm_exit')
-
-	last_record = None
-
-	for i in range(0, n_entries):
-	#while last_record != None:
-		for file in open_files:
-			if records_files["event"][i] == kvm_entry_id:
-				print(file.read_event_field(offset=records["offset"][i], event_id=kvm_entry_id, field='vcpu'))
-
-"""
