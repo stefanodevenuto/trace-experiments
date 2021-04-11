@@ -27,30 +27,38 @@ int is_guest(int stream_id,
   return 0;
 }
 
-void print_entries(struct kshark_entry **entries, ssize_t n_entries) {
+void print_entry(struct kshark_entry* entry) {
   struct kshark_data_stream* stream;
   char* event_name;
   int stream_id;
 
-  for (int i = 0; i < n_entries; ++i) {
-    stream = kshark_get_stream_from_entry(entries[i]);
-    event_name = kshark_get_event_name(entries[i]);
+  stream = kshark_get_stream_from_entry(entry);
+  event_name = kshark_get_event_name(entry);
 
-    stream_id = stream->stream_id;
-    printf("%d: %s-%d, %lld [%03d]:%s\t%s\n",
-      stream->stream_id, 
-      kshark_get_task(entries[i]),
-      kshark_get_pid(entries[i]),
-      entries[i]->ts,
-      entries[i]->cpu,
-      event_name,
-      kshark_get_info(entries[i]));
+  stream_id = stream->stream_id;
+  printf("%d: %s-%d, %lld [%03d]:%s\t%s\n",
+    stream->stream_id,
+    kshark_get_task(entry),
+    kshark_get_pid(entry),
+    entry->ts,
+    entry->cpu,
+    event_name,
+    kshark_get_info(entry));
+
+}
+
+void print_entries(struct kshark_entry **entries, ssize_t n_entries) {
+
+  for (int i = 0; i < n_entries; ++i) {
+    print_entry(entries[i]);
   }
 }
 
 void free_data(struct kshark_context *kshark_ctx,
                struct custom_stream** custom_streams,
-               struct kshark_entry** entries, int n_entries) {
+               struct kshark_entry** entries, int n_entries,
+               struct kshark_host_guest_map* host_guest_mapping,
+               int n_guest) {
   
   struct custom_stream* custom_stream;
 
@@ -66,6 +74,8 @@ void free_data(struct kshark_context *kshark_ctx,
     free(entries[i]);
   }
   free(entries);
+
+  kshark_tracecmd_free_hostguest_map(host_guest_mapping, n_guest);
 
   kshark_close_all(kshark_ctx);
   kshark_free(kshark_ctx);
@@ -131,15 +141,6 @@ int main(int argc, char **argv) {
 
     custom_stream = custom_streams[stream->stream_id];
 
-    printf("%d: %s-%d, %lld [%03d]:%s\t%s\n",
-      stream->stream_id, 
-      kshark_get_task(entries[i]),
-      kshark_get_pid(entries[i]),
-      entries[i]->ts,
-      entries[i]->cpu,
-      event_name,
-      kshark_get_info(entries[i]));
-
     if (!strcmp(event_name, KVM_ENTRY) || !strcmp(event_name, KVM_EXIT)) {
       if (!strcmp(event_name, KVM_ENTRY)) {
 
@@ -178,7 +179,8 @@ int main(int argc, char **argv) {
         }
 
         if (v_i == host_stream->original_stream->n_cpus) {
-          printf("ERROR: guest event outside of kvm_entry/kvm_exit block\n");
+          printf("%d G out:\t", i);
+          print_entry(entries[i]);
           //return 1;
         }
 
@@ -188,12 +190,13 @@ int main(int argc, char **argv) {
        */
       } else {
         if (custom_stream->cpus[current->cpu] != -1) {
-          printf("ERROR: host event inside of kvm_entry/kvm_exit block\n");
+          printf("%d H in:\t", i);
+          print_entry(entries[i]);
           //return 1;
         }
       }
     }
   }
 
-  free_data(kshark_ctx, custom_streams, entries, n_entries);
+  free_data(kshark_ctx, custom_streams, entries, n_entries, host_guest_mapping, n_guest);
 }
