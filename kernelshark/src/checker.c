@@ -8,9 +8,12 @@
 #define KVM_ENTRY "kvm/kvm_entry"
 #define KVM_EXIT "kvm/kvm_exit"
 
+#define MAX_BUF_LEN 1024
+
 struct custom_stream {
   struct kshark_data_stream* original_stream;
   int* cpus;
+  int* check_vcpu;
 };
 
 int is_guest(int stream_id, 
@@ -27,6 +30,24 @@ int is_guest(int stream_id,
   return 0;
 }
 
+int get_string_field(char* string, char* field_name, char** field_value) {
+
+    char* token = strtok(string, " ");
+  
+    while (token != NULL) {
+      if (!strcmp(token, field_name)) {
+        token = strtok(NULL, " ");
+        *field_value = strndup(token, MAX_BUF_LEN);
+
+        return 1;
+      }
+
+      token = strtok(NULL, " ");
+    }
+
+    return 0;
+}
+
 void print_entry(struct kshark_entry* entry) {
   struct kshark_data_stream* stream;
   char* event_name;
@@ -36,7 +57,7 @@ void print_entry(struct kshark_entry* entry) {
   event_name = kshark_get_event_name(entry);
 
   stream_id = stream->stream_id;
-  printf("%d: %s-%d, %lld [%03d]:%s\t%s\n",
+  printf("       %d: %s-%d, %lld [%03d]:%s\t%s\n",
     stream->stream_id,
     kshark_get_task(entry),
     kshark_get_pid(entry),
@@ -92,9 +113,11 @@ int main(int argc, char **argv) {
   struct kshark_entry* current;
   ssize_t n_entries;
   char* event_name;
+  char* vcpu_field;
   int n_guest;
   char* info;
   int host;
+  int vcpu;
   int v_i;
   int sd;
 
@@ -128,10 +151,17 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  for (int i = 1; i < argc; i++) {
+    custom_stream = custom_streams[i-1];
+    if (!is_guest(custom_stream->original_stream->stream_id, host_guest_mapping, n_guest, &host)) {
+      custom_stream->check_vcpu = calloc(22, sizeof(int)); // TODO: use DynArray
+    }
+  }
+
   entries = NULL;
   n_entries = kshark_load_all_entries(kshark_ctx, &entries);
 
-  //print_entries(entries, n_entries);
+  /* print_entries(entries, n_entries); */
 
   for (int i = 0; i < n_entries; ++i) {
     current = entries[i];
@@ -142,24 +172,27 @@ int main(int argc, char **argv) {
     custom_stream = custom_streams[stream->stream_id];
 
     if (!strcmp(event_name, KVM_ENTRY) || !strcmp(event_name, KVM_EXIT)) {
+
+      /*
+       * The recovering process of the vCPU field of the kvm_entry event
+       * is done by splitting the info field, because apparently the vCPU one
+       * is not considered a "real" field (like for example the rip one of the same event)
+       */
+      info = kshark_get_info(current);
+      get_string_field(info, "vcpu", &vcpu_field);
+
+      /* Removing the last comma */
+      vcpu_field[strlen(vcpu_field) - 1] = '\0';
+
+      vcpu = atoi(vcpu_field);
+
+      free(vcpu_field);
+      free(info);
+
+      custom_stream->check_vcpu[vcpu] = 1;
+
       if (!strcmp(event_name, KVM_ENTRY)) {
-
-        /*
-         * The recovering process of the vCPU field of the kvm_entry event
-         * is done by splitting the info field, because apparently the vCPU one
-         * is not considered a "real" field (like for example the rip one of the same event)
-         */
-        info = kshark_get_info(current);
-
-        char * token = strtok(info, " ");
-        token = strtok(NULL, " ");
-
-        // Removing the last comma
-        token[strlen(token) - 1] = '\0';
-
-        custom_stream->cpus[current->cpu] = atoi(token);
-
-        free(info);
+        custom_stream->cpus[current->cpu] = vcpu;
       } else {
         custom_stream->cpus[current->cpu] = -1;
       }
@@ -178,10 +211,12 @@ int main(int argc, char **argv) {
             break;
         }
 
-        if (v_i == host_stream->original_stream->n_cpus) {
-          printf("%d G out:\t", i);
-          print_entry(entries[i]);
-          //return 1;
+        /*
+         * Check for not valid guest events only if a previous entry/exit host event
+         * for the current vCPU has been encountered.
+         */
+        if (v_i == host_stream->original_stream->n_cpus && host_stream->check_vcpu[current->cpu]) {
+          printf("+ %4d G out:\t", i);
         }
 
       /*
@@ -190,12 +225,12 @@ int main(int argc, char **argv) {
        */
       } else {
         if (custom_stream->cpus[current->cpu] != -1) {
-          printf("%d H in:\t", i);
-          print_entry(entries[i]);
-          //return 1;
+          printf("+ %4d H in:\t", i);
         }
       }
     }
+
+    print_entry(entries[i]);
   }
 
   free_data(kshark_ctx, custom_streams, entries, n_entries, host_guest_mapping, n_guest);
